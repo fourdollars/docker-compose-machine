@@ -1,0 +1,20 @@
+name: docker-compose-machine
+display-name: Docker Compose Machine (PoC)
+summary: Machine charm to quickly deploy services via docker-compose for PoC
+description: |
+  A minimal Juju machine charm for rapidly deploying and verifying arbitrary
+  docker-compose workloads inside a Juju environment.
+
+  DISCLAIMER (PoC Only):
+  This charm is strictly intended for rapid Proof-of-Concept (PoC) and testing
+  purposes. It intentionally omits Juju relations, high-availability clustering,
+  backups, and production lifecycle management. It is NOT suitable for
+  production environments.
+maintainers:
+  - Shih-Yuan Lee (FourDollars) <fourdollars@gmail.com>
+tags:
+  - docker
+  - docker-compose
+  - poc
+assumes:
+  - juju >= 3.1

@@ -1,0 +1,72 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
+
+      - name: Run ruff lint
+        run: uv run ruff check .
+
+      - name: Run ruff format check
+        run: uv run ruff format --check .
+
+      - name: Run unit tests
+        run: uv run pytest -v
+
+      - name: Validate YAML files
+        run: |
+          uv run --with pyyaml python -c "
+          import yaml
+          for f in [
+              'metadata.yaml',
+              'config.yaml',
+              'charmcraft.yaml',
+              '.github/workflows/test.yaml',
+              '.github/workflows/publish.yaml',
+          ]:
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+          "
+
+  pack:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          sudo snap install charmcraft --classic
+          sudo snap install astral-uv --classic
+
+      - name: Pack charm
+        run: |
+          sudo charmcraft pack --destructive-mode --platform amd64
+          sudo charmcraft pack --destructive-mode --platform arm64
+          sudo chown -R $USER:$USER .
+
+      - name: Upload charm artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-compose-machine-charm
+          path: "*.charm"
+          retention-days: 30

@@ -1,0 +1,19 @@
+options:
+  raw:
+    type: string
+    default: ""
+    description: |
+      Inline docker-compose.yml content. Mutually exclusive with 'url'.
+  url:
+    type: string
+    default: ""
+    description: |
+      HTTP/HTTPS URL pointing to a remote docker-compose.yml file or Git repository
+      (e.g. https://github.com/org/repo.git#subpath or GitHub raw/blob/tree URLs).
+      Mutually exclusive with 'raw'.
+  env:
+    type: string
+    default: ""
+    description: |
+      Optional multi-line KEY=VALUE environment variables written to .env
+      alongside compose.yaml for Docker Compose variable interpolation.

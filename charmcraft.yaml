@@ -1,0 +1,19 @@
+type: charm
+base: ubuntu@26.04
+
+platforms:
+  amd64:
+    build-on: [amd64, arm64]
+    build-for: [amd64]
+  arm64:
+    build-on: [amd64, arm64]
+    build-for: [arm64]
+
+parts:
+  charm:
+    plugin: uv
+    source: .
+    build-snaps:
+      - astral-uv
+    build-environment:
+      - UV_FROZEN: "false"

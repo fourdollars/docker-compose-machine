@@ -1,0 +1,107 @@
+name: Publish to CharmHub
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_run:
+    workflows: ["Test"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "CharmHub channel to publish to"
+        required: true
+        default: "edge"
+        type: choice
+        options:
+          - edge
+          - beta
+          - candidate
+          - stable
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and Publish Charm
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          sudo snap install charmcraft --classic
+          sudo snap install astral-uv --classic
+
+      - name: Pack charm
+        run: |
+          sudo charmcraft pack --destructive-mode --platform amd64
+          sudo charmcraft pack --destructive-mode --platform arm64
+          sudo chown -R $USER:$USER .
+
+      - name: Upload charm artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-compose-machine-charm
+          path: "*.charm"
+          retention-days: 30
+
+      - name: Upload charms to CharmHub
+        env:
+          CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_TOKEN }}
+        run: |
+          REVISIONS=""
+          for CHARM_FILE in *.charm; do
+            echo "Uploading $CHARM_FILE to CharmHub..."
+            charmcraft upload "$CHARM_FILE" --name docker-compose-machine --format json > upload-result.json
+            cat upload-result.json
+            REVISION=$(jq -r '.revision' upload-result.json)
+            echo "Uploaded $CHARM_FILE as revision $REVISION"
+            REVISIONS="$REVISIONS $REVISION"
+          done
+          echo "revisions=$REVISIONS" >> "$GITHUB_ENV"
+
+      - name: Determine target channel
+        id: channel
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANNEL="${{ github.event.inputs.channel }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            CHANNEL="edge"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+-rc ]]; then
+            CHANNEL="beta"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            CHANNEL="candidate"
+          else
+            CHANNEL="edge"
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "Target channel: $CHANNEL"
+
+      - name: Release to channel
+        env:
+          CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_TOKEN }}
+        run: |
+          CHANNEL="${{ steps.channel.outputs.channel }}"
+          for REVISION in ${{ env.revisions }}; do
+            charmcraft release docker-compose-machine \
+              --revision="$REVISION" \
+              --channel="$CHANNEL"
+          done
+
+      - name: Get CharmHub status
+        env:
+          CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_TOKEN }}
+        run: charmcraft status docker-compose-machine

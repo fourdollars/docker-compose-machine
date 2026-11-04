@@ -1,0 +1,8 @@
+temporal:
+  url: https://raw.githubusercontent.com/temporalio/temporal-server-operations/refs/heads/main/compose/docker-compose.yml
+  env: |-
+    POSTGRESQL_VERSION=16
+    ELASTICSEARCH_VERSION=7.17.27
+    TEMPORAL_VERSION=1.32.0
+    TEMPORAL_ADMINTOOLS_VERSION=1.32.0
+    TEMPORAL_UI_VERSION=2.54.1
