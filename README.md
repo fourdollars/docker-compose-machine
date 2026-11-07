@@ -110,6 +110,36 @@ juju deploy docker-compose-machine temporal --config ./examples/temporal.yaml
 juju expose temporal
 ```
 
+### 4. Deploy Hindsight Agent Memory via Inline `raw` Config
+
+```yaml
+# examples/hindsight.yaml
+hindsight:
+  raw: |-
+    services:
+      hindsight:
+        image: ghcr.io/vectorize-io/hindsight:latest
+        container_name: hindsight
+        restart: unless-stopped
+        ports:
+          - "8888:8888"
+          - "9999:9999"
+        environment:
+          - HINDSIGHT_API_LLM_API_KEY=$OPENAI_API_KEY
+        volumes:
+          - hindsight-data:/home/hindsight/.pg0
+
+    volumes:
+      hindsight-data:
+  env: |-
+    OPENAI_API_KEY=sk-dummy
+```
+
+```bash
+juju deploy docker-compose-machine hindsight --config ./examples/hindsight.yaml
+juju expose hindsight
+```
+
 ---
 
 ## Development

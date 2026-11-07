@@ -32,14 +32,15 @@ jobs:
       - name: Validate YAML files
         run: |
           uv run --with pyyaml python -c "
-          import yaml
-          for f in [
+          import glob, yaml
+          files = [
               'metadata.yaml',
               'config.yaml',
               'charmcraft.yaml',
               '.github/workflows/test.yaml',
               '.github/workflows/publish.yaml',
-          ]:
+          ] + glob.glob('examples/*.yaml')
+          for f in files:
               with open(f) as fh:
                   yaml.safe_load(fh)
           "
