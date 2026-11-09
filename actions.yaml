@@ -1,0 +1,9 @@
+tailscale-login:
+  description: "Initiate Tailscale login and retrieve interactive browser authentication URL."
+  params:
+    hostname:
+      type: string
+      description: "Optional custom hostname for this node."
+      default: ""
+tailscale-status:
+  description: "Check current Tailscale backend state and IP addresses."

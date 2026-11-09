@@ -353,3 +353,106 @@ class TestParseGitUrl:
     def test_non_git_url_returns_none(self) -> None:
         url = "https://concourse-ci.org/docker-compose.yml"
         assert parse_git_url(url) is None
+
+
+class TestTailscaleMethods:
+    """Tests for Tailscale installation, login, status and serve helpers in ComposeManager."""
+
+    def test_is_tailscale_installed(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch("compose.shutil.which", return_value=None):
+            assert mgr.is_tailscale_installed() is False
+        with patch("compose.shutil.which", return_value="/usr/bin/tailscale"):
+            assert mgr.is_tailscale_installed() is True
+
+    def test_install_tailscale(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch.object(mgr, "_run_cmd") as mock_cmd:
+            mgr.install_tailscale()
+
+        assert mock_cmd.call_count == 4
+        calls = [call.args[0] for call in mock_cmd.call_args_list]
+        assert calls[0] == ["apt-get", "update", "-y"]
+        assert calls[1] == ["apt-get", "install", "-y", "curl"]
+        assert calls[2] == ["sh", "-c", "curl -fsSL https://tailscale.com/install.sh | sh"]
+        assert calls[3] == ["systemctl", "enable", "--now", "tailscaled.service"]
+
+    def test_get_tailscale_status(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        sample_status = json.dumps({"BackendState": "Running", "TailscaleIPs": ["100.64.0.1"]})
+        with patch.object(mgr, "_run_cmd", return_value=sample_status):
+            res = mgr.get_tailscale_status()
+            assert res["BackendState"] == "Running"
+            assert res["TailscaleIPs"] == ["100.64.0.1"]
+
+        with patch.object(mgr, "_run_cmd", side_effect=ComposeError("tailscale error")):
+            assert mgr.get_tailscale_status() == {}
+
+    def test_get_tailscale_login_url_from_status(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch.object(
+            mgr,
+            "get_tailscale_status",
+            return_value={"AuthURL": "https://login.tailscale.com/a/status123"},
+        ):
+            assert mgr.get_tailscale_login_url() == "https://login.tailscale.com/a/status123"
+
+    def test_get_tailscale_login_url_from_command_error(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        error_msg = "Command failed: To authenticate, visit: https://login.tailscale.com/a/err12345"
+        with (
+            patch.object(mgr, "get_tailscale_status", return_value={}),
+            patch.object(mgr, "_run_cmd", side_effect=ComposeError(error_msg)),
+        ):
+            url = mgr.get_tailscale_login_url(hostname="my-node")
+            assert url == "https://login.tailscale.com/a/err12345"
+
+    def test_tailscale_up(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch.object(mgr, "_run_cmd") as mock_cmd:
+            mgr.tailscale_up("tskey-auth-xyz", hostname="hindsight")
+
+        mock_cmd.assert_called_once_with(
+            ["tailscale", "up", "--auth-key=tskey-auth-xyz", "--reset", "--hostname", "hindsight"]
+        )
+
+    def test_tailscale_serve(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch.object(mgr, "_run_cmd") as mock_cmd:
+            mgr.tailscale_serve(web_port=8080, tcp_ports=[5432, 7233, 8080])
+
+        assert mock_cmd.call_count == 4
+        calls = [call.args[0] for call in mock_cmd.call_args_list]
+        assert calls[0] == ["tailscale", "serve", "reset"]
+        assert calls[1] == [
+            "tailscale",
+            "serve",
+            "--bg",
+            "--yes",
+            "--https",
+            "443",
+            "http://localhost:8080",
+        ]
+        assert calls[2] == [
+            "tailscale",
+            "serve",
+            "--bg",
+            "--yes",
+            "--tcp",
+            "5432",
+            "tcp://localhost:5432",
+        ]
+        assert calls[3] == [
+            "tailscale",
+            "serve",
+            "--bg",
+            "--yes",
+            "--tcp",
+            "7233",
+            "tcp://localhost:7233",
+        ]
+
+    def test_tailscale_serve_reset_ignores_compose_error(self, tmp_path: Path) -> None:
+        mgr = ComposeManager(work_dir=tmp_path)
+        with patch.object(mgr, "_run_cmd", side_effect=ComposeError("not running")):
+            mgr.tailscale_serve_reset()

@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_WORK_DIR = Path("/srv/docker-compose")
+logger = logging.getLogger(__name__)
 
 
 class ComposeError(Exception):
@@ -247,6 +251,101 @@ class ComposeManager:
         """Run `docker compose down --remove-orphans` if compose.yaml exists."""
         if self.compose_file.exists():
             self._run_compose(["down", "--remove-orphans"])
+
+    def is_tailscale_installed(self) -> bool:
+        """Check if the tailscale CLI executable exists on PATH."""
+        return shutil.which("tailscale") is not None
+
+    def install_tailscale(self) -> None:
+        """Install Tailscale via official install script and enable tailscaled.service."""
+        env = os.environ.copy()
+        env["DEBIAN_FRONTEND"] = "noninteractive"
+        self._run_cmd(["apt-get", "update", "-y"], env=env)
+        self._run_cmd(["apt-get", "install", "-y", "curl"], env=env)
+        self._run_cmd(
+            ["sh", "-c", "curl -fsSL https://tailscale.com/install.sh | sh"],
+            env=env,
+        )
+        self._run_cmd(["systemctl", "enable", "--now", "tailscaled.service"])
+
+    def get_tailscale_status(self) -> dict[str, Any]:
+        """Query `tailscale status --json` and return status dict."""
+        try:
+            out = self._run_cmd(["tailscale", "status", "--json"])
+            data = json.loads(out)
+            return data if isinstance(data, dict) else {}
+        except (ComposeError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to get tailscale status: %s", exc)
+            return {}
+
+    def get_tailscale_login_url(self, hostname: str | None = None) -> str | None:
+        """Initiate Tailscale login and retrieve interactive authentication URL."""
+        status = self.get_tailscale_status()
+        if status.get("AuthURL"):
+            return str(status["AuthURL"])
+
+        cmd = ["tailscale", "login", "--timeout=2s"]
+        if hostname:
+            cmd.extend(["--hostname", hostname])
+
+        try:
+            self._run_cmd(cmd)
+        except ComposeError as exc:
+            match = re.search(r"https://login\.tailscale\.com/a/\S+", str(exc))
+            if match:
+                return match.group(0)
+
+        status = self.get_tailscale_status()
+        if status.get("AuthURL"):
+            return str(status["AuthURL"])
+        return None
+
+    def tailscale_up(self, auth_key: str, hostname: str | None = None) -> None:
+        """Authenticate and bring up Tailscale node with auth-key."""
+        cmd = ["tailscale", "up", f"--auth-key={auth_key}", "--reset"]
+        if hostname:
+            cmd.extend(["--hostname", hostname])
+        self._run_cmd(cmd)
+
+    def tailscale_serve(
+        self, web_port: int | None = None, tcp_ports: list[int] | None = None
+    ) -> None:
+        """Configure Tailscale Serve for HTTPS web_port and raw TCP ports."""
+        self.tailscale_serve_reset()
+        if web_port:
+            self._run_cmd(
+                [
+                    "tailscale",
+                    "serve",
+                    "--bg",
+                    "--yes",
+                    "--https",
+                    "443",
+                    f"http://localhost:{web_port}",
+                ]
+            )
+        if tcp_ports:
+            for port in sorted(set(tcp_ports)):
+                if port == web_port:
+                    continue
+                self._run_cmd(
+                    [
+                        "tailscale",
+                        "serve",
+                        "--bg",
+                        "--yes",
+                        "--tcp",
+                        str(port),
+                        f"tcp://localhost:{port}",
+                    ]
+                )
+
+    def tailscale_serve_reset(self) -> None:
+        """Reset current Tailscale Serve configuration."""
+        try:
+            self._run_cmd(["tailscale", "serve", "reset"])
+        except ComposeError as exc:
+            logger.debug("Tailscale serve reset ignored: %s", exc)
 
     def _run_compose(self, args: list[str]) -> str:
         cmd = [
