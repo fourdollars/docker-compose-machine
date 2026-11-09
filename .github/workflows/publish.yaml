@@ -65,7 +65,17 @@ jobs:
           REVISIONS=""
           for CHARM_FILE in *.charm; do
             echo "Uploading $CHARM_FILE to CharmHub..."
-            charmcraft upload "$CHARM_FILE" --name docker-compose-machine --format json > upload-result.json
+            for ATTEMPT in 1 2 3; do
+              if charmcraft upload "$CHARM_FILE" --name docker-compose-machine --format json > upload-result.json; then
+                break
+              fi
+              if [ "$ATTEMPT" -eq 3 ]; then
+                echo "::error::Failed to upload $CHARM_FILE after $ATTEMPT attempts"
+                exit 1
+              fi
+              echo "Upload failed; retrying in 10 seconds (attempt $((ATTEMPT + 1))/3)..."
+              sleep 10
+            done
             cat upload-result.json
             REVISION=$(jq -r '.revision' upload-result.json)
             echo "Uploaded $CHARM_FILE as revision $REVISION"
