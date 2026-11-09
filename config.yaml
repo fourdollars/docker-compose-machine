@@ -17,3 +17,15 @@ options:
     description: |
       Optional multi-line KEY=VALUE environment variables written to .env
       alongside compose.yaml for Docker Compose variable interpolation.
+  tailscale-secret:
+    type: string
+    default: ""
+    description: |
+      Optional Juju Secret URI (e.g. 'secret:ch8vj02...') to configure Tailscale.
+      Supported keys in the secret:
+        - 'auth-key' or 'authkey': Tailscale authentication key (optional).
+        - 'hostname': Tailnet hostname (optional).
+        - 'domain': Custom or MagicDNS domain name (optional).
+        - 'web-port': Primary web service port to serve via HTTPS 443 (optional).
+        - 'ports': Comma-separated list of TCP ports to forward (optional).
+      If 'authkey' is omitted, use the 'tailscale-login' action or SSH to authenticate.
