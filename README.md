@@ -141,7 +141,63 @@ juju deploy docker-compose-machine hindsight --config ./examples/hindsight.yaml
 juju expose hindsight
 ```
 
-### 5. Tailscale Integration with Juju Secrets & Multi-Port Serve
+### 5. Deploy Rune Notes via Inline `raw` Config
+
+```yaml
+# examples/rune-notes.yaml
+rune-notes:
+  raw: |-
+    services:
+      rune-notes:
+        image: ghcr.io/fourdollars/rune:latest
+        container_name: rune-notes
+        restart: unless-stopped
+        entrypoint:
+          - /bin/sh
+          - -c
+          - chown 1000:1000 /home/rune/.rune && exec /usr/local/bin/docker-entrypoint.sh "$$@"
+          - --
+        command: ["notes", "--bind", "0.0.0.0", "--port", "9527"]
+        ports:
+          - "9527:9527"
+        environment:
+          - RUNE_API_KEY=${RUNE_API_KEY}
+          - RUNE_PROVIDER=${RUNE_PROVIDER:-openrouter}
+          - RUNE_MODEL=${RUNE_MODEL:-openrouter/auto}
+        configs:
+          - source: rune_config
+            target: /home/rune/.rune/rune.toml
+            uid: "1000"
+            gid: "1000"
+            mode: 0644
+        volumes:
+          - rune-data:/home/rune
+
+    configs:
+      rune_config:
+        content: |
+          [notes]
+          port = 9527
+          bind = "0.0.0.0"
+
+          [notes.local]
+          admins = ["${RUNE_ADMIN:-admin:admin123}"]
+
+    volumes:
+      rune-data:
+  env: |-
+    RUNE_API_KEY=sk-or-dummy
+    RUNE_PROVIDER=openrouter
+    RUNE_MODEL=openrouter/auto
+    RUNE_ADMIN=admin:admin123
+```
+
+```bash
+juju deploy docker-compose-machine rune-notes --config ./examples/rune-notes.yaml
+juju expose rune-notes
+```
+
+### 6. Tailscale Integration with Juju Secrets & Multi-Port Serve
 
 Tailscale is installed **on-demand** only when `tailscale-secret` is configured (zero overhead by default). The secret can contain credentials, custom hostnames, domains, and port mappings.
 
